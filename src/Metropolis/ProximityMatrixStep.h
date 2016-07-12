@@ -34,7 +34,7 @@ class ProximityMatrixStep: public SimulationStep {
   virtual Real calcSystemEnergy(Real &subLJ, Real &subCharge,
                                 int numMolecules);
   virtual Real calcMolecularEnergyContribution(int currMol, int startMol);
-  virtual void changeMolecule(int molIdx, SimBox *box);
+  virtual void changeMolecule(int molIdx, SimBox *box, bool verbose);
   virtual void rollback(int molIdx, SimBox *box);
  private:
   char *proximityMatrix;

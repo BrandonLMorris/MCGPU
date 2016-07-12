@@ -34,6 +34,9 @@
 #define RESULTS_FILE_DEFAULT "run"
 #define RESULTS_FILE_EXT ".results"
 
+// DEBUG
+#define VERBOSE true
+
 Simulation::Simulation(SimulationArgs simArgs) {
   args = simArgs;
   stepStart = 0;
@@ -179,6 +182,9 @@ void Simulation::run() {
   for (int move = stepStart; move < (stepStart + simSteps); move++) {
     new_lj = 0, old_lj = 0, new_charge = 0, old_charge = 0;
 
+    // DEBUG
+    bool verbose = move > 999900;
+
     // Provide printouts at each predetermined interval
     if (args.statusInterval > 0 &&
         (move - stepStart) % args.statusInterval == 0) {
@@ -199,27 +205,55 @@ void Simulation::run() {
     // Randomly select index of a molecule for changing
     int changeIdx = simStep->chooseMolecule(sb);
 
+    // DEBUG
+    if (verbose && VERBOSE) {
+      std::cout << "==========" << std::endl;
+      std::cout << "Selected molecule " << changeIdx << std::endl << std::endl;
+    }
+
     // Calculate the energy before translation
-    oldEnergyCont = simStep->calcMoleculeEnergy(changeIdx, 0);
+    oldEnergyCont = simStep->calcMoleculeEnergy(changeIdx, 0, verbose);
+
+    // DEBUG
+    if (verbose && VERBOSE) {
+      std::cout << "Old energy calculated to be " << oldEnergyCont << std::endl << std::endl;
+
+      std::cout << "Changing molecule " << changeIdx << std::endl << std::endl;
+    }
 
     // Perturb the molecule
-    simStep->changeMolecule(changeIdx, sb);
+    simStep->changeMolecule(changeIdx, sb, verbose);
 
     // Calculate the new energy after translation
-    newEnergyCont = simStep->calcMoleculeEnergy(changeIdx, 0);
+    newEnergyCont = simStep->calcMoleculeEnergy(changeIdx, 0, verbose);
+
+    // DEBUG
+    if (verbose && VERBOSE) {
+      std::cout << "New energy calculated to be " << newEnergyCont << std::endl << std::endl;
+      std::cout << "Energy difference: " << newEnergyCont - oldEnergyCont << std::endl << std::endl;
+    }
 
     // Compare new energy and old energy to decide if we should accept or not
     if (SimCalcs::acceptMove(oldEnergyCont, newEnergyCont)) {
+      // DEBUG
+      if (verbose && VERBOSE) std::cout << "Move accepted" << std::endl << std::endl;
       accepted++;
       oldEnergy_sb += newEnergyCont - oldEnergyCont;
       lj_energy += new_lj - old_lj;
       charge_energy += new_charge - old_charge;
     } else {
+      // DEBUG
+      if (verbose && VERBOSE) std::cout << "Move rejected" << std::endl << std::endl;
       rejected++;
       simStep->rollback(changeIdx, sb);
     }
     sb->stepNum++;
   }
+  // DEBUG
+  std::cout << "Final system energy calculation: " << simStep->calcSystemEnergy(lj_energy, charge_energy, sb->numMolecules) << std::endl;
+  std::cout << "Final bond delta: " << SimCalcs::sb->maxBondDelta << std::endl;
+  std::cout << "Final angle delta: " << SimCalcs::sb->maxAngleDelta << std::endl;
+
   delete(simStep);
   endTime = clock();
   writePDB(box->getEnvironment(), box->getMolecules(), sb);

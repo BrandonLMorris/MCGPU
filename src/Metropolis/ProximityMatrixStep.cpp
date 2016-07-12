@@ -27,8 +27,8 @@ Real ProximityMatrixStep::calcSystemEnergy(Real &subLJ, Real &subCharge,
   return result;
 }
 
-void ProximityMatrixStep::changeMolecule(int molIdx, SimBox *box) {
-  SimulationStep::changeMolecule(molIdx, box);
+void ProximityMatrixStep::changeMolecule(int molIdx, SimBox *box, bool verbose) {
+  SimulationStep::changeMolecule(molIdx, box, false);
   ProximityMatrixCalcs::updateProximityMatrix(this->proximityMatrix, molIdx);
 }
 

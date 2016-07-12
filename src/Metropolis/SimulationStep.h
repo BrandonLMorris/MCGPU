@@ -31,7 +31,7 @@ class SimulationStep {
    * determine interaction energies (for intermolecular forces)
    * @return the sum of the intermolecular and intramolecular energies
    */
-  Real calcMoleculeEnergy(int currMol, int startMol);
+  Real calcMoleculeEnergy(int currMol, int startMol, bool verbose);
 
   /**
    * Determines the energy contribution of a particular molecule.
@@ -52,7 +52,7 @@ class SimulationStep {
    *      energy contribution of.
    * @return The intramolecular energy contribution of the molecule.
    */
-  Real calcIntraMolecularEnergy(int molIdx);
+  Real calcIntraMolecularEnergy(int molIdx, bool verbose);
 
 
   /**
@@ -61,7 +61,7 @@ class SimulationStep {
    *
    * @param molIdx The index of the molecule to change.
    */
-  virtual void changeMolecule(int molIdx, SimBox *box);
+  virtual void changeMolecule(int molIdx, SimBox *box, bool verbose);
 
 
   /**
@@ -102,7 +102,7 @@ namespace SimCalcs {
    *      energy contribution of.
    * @return The intramolecular energy contribution of the molecule.
    */
-  Real calcIntraMolecularEnergy(int molIdx);
+  Real calcIntraMolecularEnergy(int molIdx, bool verbose);
 
   /**
    * Calculates the energy from various flexible angles within the molecule.
@@ -111,7 +111,7 @@ namespace SimCalcs {
    * @return The energy produced by angles being different from their
    *     equilibrium measurement.
    */
-  Real angleEnergy(int molIdx);
+  Real angleEnergy(int molIdx, bool verbose);
 
   /**
    * Expands or contracts the given angle in the given molecule.
@@ -132,7 +132,7 @@ namespace SimCalcs {
    * @return The energy produced by bonds being different from their
    *     equilibrium measurement.
    */
-   Real bondEnergy(int molIdx);
+   Real bondEnergy(int molIdx, bool verbose);
 
   /**
    * Stretches or compresses the given bond in the given molecule.
@@ -223,7 +223,7 @@ namespace SimCalcs {
    *
    * @param molIdx The index of the molecule to change.
    */
-  void changeMolecule(int molIdx);
+  void changeMolecule(int molIdx, bool verbose);
 
   /**
    * Given a molecule to move, randomly rotates and translates the molecule.
@@ -241,7 +241,7 @@ namespace SimCalcs {
    *
    * @param molIdx The index of the molecule to peform movements on
    */
-  void intramolecularMove(int molIdx);
+  void intramolecularMove(int molIdx, bool verbose);
 
   /**
    * Keeps a molecule in the simulation box's boundaries, based on the location

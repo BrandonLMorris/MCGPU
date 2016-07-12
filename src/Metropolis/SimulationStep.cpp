@@ -12,7 +12,7 @@
 #define ENABLE_ANGLE 1
 #define ENABLE_DIHEDRAL 0
 #define ENABLE_TUNING true
-#define RATIO_MARGIN 0.02
+#define RATIO_MARGIN 0.0001
 #define TARGET_RATIO 0.4
 
 /** Construct a new SimulationStep from a SimBox pointer */
@@ -20,13 +20,13 @@ SimulationStep::SimulationStep(SimBox *box) {
   SimCalcs::setSB(box);
 }
 
-Real SimulationStep::calcMoleculeEnergy(int currMol, int startMol) {
+Real SimulationStep::calcMoleculeEnergy(int currMol, int startMol, bool verbose) {
   return calcMolecularEnergyContribution(currMol, startMol) +
-         calcIntraMolecularEnergy(currMol);
+         calcIntraMolecularEnergy(currMol, verbose);
 }
 
-Real SimulationStep::calcIntraMolecularEnergy(int molIdx) {
-  return SimCalcs::calcIntraMolecularEnergy(molIdx);
+Real SimulationStep::calcIntraMolecularEnergy(int molIdx, bool verbose) {
+  return SimCalcs::calcIntraMolecularEnergy(molIdx, verbose);
 }
 
 /** Returns the index of a random molecule within the simulation box */
@@ -35,8 +35,8 @@ int SimulationStep::chooseMolecule(SimBox *box) {
 }
 
 /** Perturb a given molecule */
-void SimulationStep::changeMolecule(int molIdx, SimBox *box) {
-  SimCalcs::changeMolecule(molIdx);
+void SimulationStep::changeMolecule(int molIdx, SimBox *box, bool verbose) {
+  SimCalcs::changeMolecule(molIdx, verbose);
 }
 
 /** Move a molecule back to its original position */
@@ -53,14 +53,14 @@ Real SimulationStep::calcSystemEnergy(Real &subLJ, Real &subCharge,
 
   Real total = subLJ + subCharge;
   for (int mol = 0; mol < numMolecules; mol++) {
-    total += calcMoleculeEnergy(mol, mol);
+    total += calcMoleculeEnergy(mol, mol, false);
 
     if (VERBOSE) {
       inter += calcMolecularEnergyContribution(mol, mol);
-      intra += SimCalcs::calcIntraMolecularEnergy(mol);
-      bondE = SimCalcs::bondEnergy(mol);
-      angleE = SimCalcs::angleEnergy(mol);
-      nonBondE = SimCalcs::calcIntraMolecularEnergy(mol) - bondE - angleE;
+      intra += SimCalcs::calcIntraMolecularEnergy(mol, false);
+      bondE = SimCalcs::bondEnergy(mol, false);
+      angleE = SimCalcs::angleEnergy(mol, false);
+      nonBondE = SimCalcs::calcIntraMolecularEnergy(mol, false) - bondE - angleE;
       totalBondE += bondE;
       totalAngleE += angleE;
       totalNonBondE += nonBondE;
@@ -85,7 +85,7 @@ Real SimulationStep::calcSystemEnergy(Real &subLJ, Real &subCharge,
 SimBox* SimCalcs::sb;
 int SimCalcs::on_gpu;
 
-Real SimCalcs::calcIntraMolecularEnergy(int molIdx) {
+Real SimCalcs::calcIntraMolecularEnergy(int molIdx, bool verbose) {
   int** moleculeData = GPUCopy::moleculeDataPtr();
   int molStart = moleculeData[MOL_START][molIdx];
   int molEnd = molStart + moleculeData[MOL_LEN][molIdx];
@@ -94,8 +94,13 @@ Real SimCalcs::calcIntraMolecularEnergy(int molIdx) {
   Real** atomData = GPUCopy::atomDataPtr();
 
   Real out = 0.0;
-  out += angleEnergy(molIdx);
-  out += bondEnergy(molIdx);
+  out += angleEnergy(molIdx, verbose);
+  out += bondEnergy(molIdx, verbose);
+
+  // DEBUG
+  if (verbose && VERBOSE) {
+    std::cout << "Calculating LJ and Charge Energy for molecule " << molIdx << std::endl;
+  }
 
   // Calculate intramolecular LJ and Coulomb energy if necessary
   for (int i = molStart; i < molEnd; i++) {
@@ -127,13 +132,31 @@ Real SimCalcs::calcIntraMolecularEnergy(int molIdx) {
         Real energy = calcLJEnergy(i, j, r2, atomData);
         energy += calcChargeEnergy(i, j, r, atomData);
         out += fudgeFactor * energy;
+
+        // DEBUG
+        if (verbose && VERBOSE) {
+          std::cout << "Atoms " << i << " " << j << ": " << " LJ: " << calcLJEnergy(i, j, r, atomData)
+                    << "Charge: " << calcChargeEnergy(i, j, r, atomData) << std::endl;
+        }
+      } else { // DEBUG
+        if (verbose && VERBOSE) {
+          std::cout << "Atoms " << i << " " << j << ": Skipped" << std::endl;
+        }
       }
     }
   }
+  // DEBUG
+  if (verbose && VERBOSE) std::cout << std::endl;
+
   return out;
 }
 
-Real SimCalcs::angleEnergy(int molIdx) {
+Real SimCalcs::angleEnergy(int molIdx, bool verbose) {
+  // DEBUG
+  if (verbose && VERBOSE) {
+    std::cout << "Angle Energy for molecule " << molIdx << std::endl;
+  }
+
   int** moleculeData = GPUCopy::moleculeDataPtr();
   Real out = 0;
   int angleStart = moleculeData[MOL_ANGLE_START][molIdx];
@@ -142,8 +165,24 @@ Real SimCalcs::angleEnergy(int molIdx) {
     if ((bool) sb->angleData[ANGLE_VARIABLE][i]) {
       Real diff = sb->angleData[ANGLE_EQANGLE][i] - sb->angleSizes[i];
       out += sb->angleData[ANGLE_KANGLE][i] * diff * diff;
+
+      // DEBUG
+      if (verbose && VERBOSE) {
+        std::cout << "Angle: " << i << " EQ: " << sb->angleData[ANGLE_EQANGLE][i]
+                  << " Val: " << sb->angleSizes[i] << " Diff: " << diff
+                  << " Force K: " << sb->angleData[ANGLE_KANGLE][i]
+                  << " Total E: " << sb->angleData[ANGLE_KANGLE][i] * diff * diff
+                  << std::endl;
+      }
     }
   }
+
+  // DEBUG
+  if (verbose && VERBOSE) {
+    std::cout << "Total angle energy: " << out << std::endl;
+    std::cout << std::endl;
+  }
+
   return out;
 }
 
@@ -236,7 +275,12 @@ void SimCalcs::expandAngle(int molIdx, int angleIdx, Real expandDeg) {
   angleSizes[angleStart + angleIdx] += expandDeg;
 }
 
-Real SimCalcs::bondEnergy(int molIdx) {
+Real SimCalcs::bondEnergy(int molIdx, bool verbose) {
+  // DEBUG
+  if (verbose && VERBOSE) {
+    std::cout << "Bond Energy for molecule " << molIdx << std::endl;
+  }
+
   Real out = 0;
   int bondStart = sb->moleculeData[MOL_BOND_START][molIdx];
   int bondEnd = bondStart + sb->moleculeData[MOL_BOND_COUNT][molIdx];
@@ -244,8 +288,24 @@ Real SimCalcs::bondEnergy(int molIdx) {
     if ((bool) sb->bondData[BOND_VARIABLE][i]) {
       Real diff = sb->bondData[BOND_EQDIST][i] - sb->bondLengths[i];
       out += sb->bondData[BOND_KBOND][i] * diff * diff;
+
+      // DEBUG
+      if (verbose && VERBOSE) {
+        std::cout << "Bond: " << i << " EQ: " << sb->bondData[BOND_EQDIST][i]
+                  << " Val: " << sb->bondLengths[i] << " Diff: " << diff
+                  << " Force K: " << sb->bondData[BOND_KBOND][i]
+                  << " Total E: " << sb->bondData[BOND_KBOND][i] * diff * diff
+                  << std::endl;
+      }
     }
   }
+
+  // DEBUG
+  if (verbose && VERBOSE) {
+    std::cout << "Total bond energy: " << out << std::endl;
+    std::cout << std::endl;
+  }
+
   return out;
 }
 
@@ -412,10 +472,10 @@ void SimCalcs::rotateZ(int aIdx, Real angleDeg, Real** aCoords) {
   aCoords[Y_COORD][aIdx] = oldY * cos(angleRad) - oldX * sin(angleRad);
 }
 
-void SimCalcs::changeMolecule(int molIdx) {
+void SimCalcs::changeMolecule(int molIdx, bool verbose) {
   // Intermolecular moves first, to save proper rollback positions
   intermolecularMove(molIdx);
-  intramolecularMove(molIdx);
+  intramolecularMove(molIdx, verbose);
 }
 
 void SimCalcs::intermolecularMove(int molIdx) {
@@ -464,18 +524,18 @@ void SimCalcs::intermolecularMove(int molIdx) {
   }
 }
 
-void SimCalcs::intramolecularMove(int molIdx) {
+void SimCalcs::intramolecularMove(int molIdx, bool verbose) {
   // Save the molecule data for rolling back
   // TODO (blm): Put these in the GPU with GPUCopy
   saveBonds(molIdx);
   saveAngles(molIdx);
   // Max with one to avoid divide by zero if no intra moves
   int numMoveTypes = max(ENABLE_BOND + ENABLE_ANGLE + ENABLE_DIHEDRAL, 1);
-  Real intraScaleFactor = 0.25 + (0.75 / (numMoveTypes));
+  Real intraScaleFactor = 0.25 + (0.75 / (Real)(numMoveTypes));
   Real scaleFactor;
   std::set<int> indexes;
 
-  Real newEnergy = 0, currentEnergy = calcIntraMolecularEnergy(molIdx);
+  Real newEnergy = 0, currentEnergy = calcIntraMolecularEnergy(molIdx, false);
 
   // TODO (blm): allow max to be configurable
   int numBonds = sb->moleculeData[MOL_BOND_COUNT][molIdx];
@@ -489,7 +549,7 @@ void SimCalcs::intramolecularMove(int molIdx) {
       numBondsToMove = (int)randomReal(2, numBonds);
       numBondsToMove = min(numBondsToMove, sb->maxIntraMoves);
     }
-    scaleFactor = 0.25 + (0.75 / numBondsToMove) * intraScaleFactor;
+    scaleFactor = 0.25 + (0.75 / (Real)numBondsToMove) * intraScaleFactor;
     sb->numBondMoves += numBondsToMove;
 
     // Select the indexes of the bonds to move
@@ -500,17 +560,20 @@ void SimCalcs::intramolecularMove(int molIdx) {
     // Move and test each bond
     for (auto bondIdx = indexes.begin(); bondIdx != indexes.end(); bondIdx++) {
       Real stretchDist = scaleFactor * randomReal(-bondDelta, bondDelta);
-      // int selectedBond = (int)randomReal(0, numBonds);
+      // DEBUG
+      if (verbose && VERBOSE) {
+        std::cout << "Changing bond " << *bondIdx << " by " << stretchDist << std::endl;
+      }
       stretchBond(molIdx, *bondIdx, stretchDist);
 
-      // Do an MC test for delta tuning
-      // Note: Failing does NOT mean we rollback
-      newEnergy = calcIntraMolecularEnergy(molIdx);
-      if (SimCalcs::acceptMove(currentEnergy, newEnergy)) {
-        sb->numAcceptedBondMoves++;
-      }
-      currentEnergy = newEnergy;
     }
+    // Do an MC test for delta tuning
+    // Note: Failing does NOT mean we rollback
+    newEnergy = calcIntraMolecularEnergy(molIdx, false);
+    if (SimCalcs::acceptMove(currentEnergy, newEnergy)) {
+      sb->numAcceptedBondMoves += numBondsToMove;
+    }
+    currentEnergy = newEnergy;
     indexes.clear();
   }
 
@@ -521,7 +584,7 @@ void SimCalcs::intramolecularMove(int molIdx) {
       numAnglesToMove = (int)randomReal(2, numAngles);
       numAnglesToMove = min(numAnglesToMove, sb->maxIntraMoves);
     }
-    scaleFactor = 0.25 + (0.75 / numAnglesToMove) * intraScaleFactor;
+    scaleFactor = 0.25 + (0.75 / (Real)numAnglesToMove) * intraScaleFactor;
     sb->numAngleMoves += numAnglesToMove;
 
     // Select the indexes of the bonds to move
@@ -532,17 +595,19 @@ void SimCalcs::intramolecularMove(int molIdx) {
     // Move and test each angle
     for (auto angle = indexes.begin(); angle != indexes.end(); angle++) {
       Real expandDist = scaleFactor * randomReal(-angleDelta, angleDelta);
-      // int selectedAngle = (int)randomReal(0, numAngles);
-      expandAngle(molIdx, *angle, expandDist);
-
-      // Do an MC test for delta tuning
-      // Note: Failing does NOT mean we rollback
-      newEnergy = calcIntraMolecularEnergy(molIdx);
-      if (SimCalcs::acceptMove(currentEnergy, newEnergy)) {
-        sb->numAcceptedAngleMoves++;
+      // DEBUG
+      if (verbose && VERBOSE) {
+        std::cout << "Changing angle " << *angle << " by " << expandDist << std::endl;
       }
-      currentEnergy = newEnergy;
+      expandAngle(molIdx, *angle, expandDist);
     }
+    // Do an MC test for delta tuning
+    // Note: Failing does NOT mean we rollback
+    newEnergy = calcIntraMolecularEnergy(molIdx, false);
+    if (SimCalcs::acceptMove(currentEnergy, newEnergy)) {
+      sb->numAcceptedAngleMoves += numAnglesToMove;
+    }
+    currentEnergy = newEnergy;
     indexes.clear();
   }
 
@@ -569,6 +634,11 @@ void SimCalcs::intramolecularMove(int molIdx) {
     sb->numBondMoves = 0;
     sb->numAcceptedAngleMoves = 0;
     sb->numAngleMoves = 0;
+  }
+
+  // DEBUG
+  if (verbose && VERBOSE) {
+    std::cout << std::endl;
   }
 }
 
